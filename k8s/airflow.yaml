@@ -1,0 +1,156 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: airflow-data
+  namespace: drift-detection
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: airflow-dags
+  namespace: drift-detection
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: airflow
+  namespace: drift-detection
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: airflow
+  template:
+    metadata:
+      labels:
+        app: airflow
+    spec:
+      serviceAccountName: airflow
+      containers:
+      - name: airflow
+        image: apache/airflow:2.8.1-python3.11
+        command: ["/bin/bash", "-c"]
+        args:
+          - |
+            echo "🗄️ Running database migrations..."
+            airflow db migrate
+            
+            echo "👤 Creating admin user..."
+            airflow users create \
+              --username admin \
+              --firstname Admin \
+              --lastname User \
+              --role Admin \
+              --email admin@example.com \
+              --password admin || true
+            
+            echo "🚀 Starting Airflow standalone..."
+            airflow standalone
+        ports:
+        - containerPort: 8080
+        env:
+        - name: AIRFLOW__CORE__EXECUTOR
+          value: "LocalExecutor"
+        - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: AIRFLOW_CONN
+        - name: AIRFLOW__CORE__DAGS_FOLDER
+          value: "/opt/airflow/dags"
+        - name: AIRFLOW__CORE__LOAD_EXAMPLES
+          value: "false"
+        - name: AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL
+          value: "5"
+        - name: AIRFLOW__CORE__PARALLELISM
+          value: "4"
+        - name: AIRFLOW__CORE__DAG_CONCURRENCY
+          value: "2"
+        - name: AIRFLOW__CORE__MAX_ACTIVE_RUNS_PER_DAG
+          value: "1"
+        - name: AIRFLOW__WEBSERVER__WORKERS
+          value: "2"
+        - name: AIRFLOW__WEBSERVER__WORKER_REFRESH_INTERVAL
+          value: "30"
+        - name: AIRFLOW__KUBERNETES__IN_CLUSTER
+          value: "true"
+        - name: AIRFLOW__KUBERNETES__NAMESPACE
+          value: "drift-detection"
+        - name: AIRFLOW__KUBERNETES__DELETE_WORKER_PODS
+          value: "true"
+        - name: AIRFLOW__KUBERNETES__DELETE_WORKER_PODS_ON_FAILURE
+          value: "false"
+        - name: DRIFTER_URL
+          value: "http://drifter.drift-detection.svc.cluster.local/api/v1/data"
+        - name: MLFLOW_TRACKING_URI
+          value: "http://mlflow.drift-detection.svc.cluster.local:5000"
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: minio-credentials
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: minio-credentials
+              key: AWS_SECRET_ACCESS_KEY
+        - name: MLFLOW_S3_ENDPOINT_URL
+          value: "http://minio.drift-detection.svc.cluster.local:9000"
+        - name: REFERENCE_DATA_S3_PATH
+          value: "s3://datasets/reference.csv"
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "1000m"
+          limits:
+            memory: "4Gi"
+            cpu: "2000m"
+        volumeMounts:
+        - name: airflow-data
+          mountPath: /opt/airflow
+        - name: dags
+          mountPath: /opt/airflow/dags
+      initContainers:
+      - name: wait-for-postgres
+        image: postgres:15-alpine
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            until pg_isready -h postgres.drift-detection.svc.cluster.local -p 5432 -U airflow; do
+              echo "Waiting for postgres..."
+              sleep 2
+            done
+            echo "PostgreSQL is ready!"
+      volumes:
+      - name: airflow-data
+        persistentVolumeClaim:
+          claimName: airflow-data
+      - name: dags
+        persistentVolumeClaim:
+          claimName: airflow-dags
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: airflow
+  namespace: drift-detection
+spec:
+  selector:
+    app: airflow
+  ports:
+  - protocol: TCP
+    port: 8080
+    targetPort: 8080
+  type: NodePort

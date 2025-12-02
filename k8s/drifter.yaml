@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: drifter
+  namespace: drift-detection
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: drifter
+  template:
+    metadata:
+      labels:
+        app: drifter
+    spec:
+      containers:
+      - name: drifter
+        image: nickosipov/drifter:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 80
+        env:
+        - name: DRIFT_PROB
+          value: "0.4"
+        - name: DRIFT_ROWS
+          value: "1000"
+        - name: DRIFT_COLS
+          value: "12"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: drifter
+  namespace: drift-detection
+spec:
+  selector:
+    app: drifter
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 80
+  type: ClusterIP
