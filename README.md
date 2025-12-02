@@ -54,7 +54,7 @@ kubectl apply -f k8s/namespace.yaml
 ### 4. Создание Secrets
 
 ```bash
-kubectl apply -f k8s/secrets.yaml
+kubectl apply -n drift-detection -f k8s/secrets.yaml
 ```
 
 ### 5. Развертывание сервисов
@@ -258,3 +258,4 @@ minikube delete
 5. Использовать GitSync для DAGs вместо ручного копирования
 6. Настроить PostgreSQL с репликацией и резервным копированием
 7. Настроить мониторинг (Prometheus, Grafana)
+8. * Логирование и алерты при дрифте

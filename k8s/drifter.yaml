@@ -21,7 +21,7 @@ spec:
         - containerPort: 80
         env:
         - name: DRIFT_PROB
-          value: "0.4"
+          value: "0.9"
         - name: DRIFT_ROWS
           value: "1000"
         - name: DRIFT_COLS
